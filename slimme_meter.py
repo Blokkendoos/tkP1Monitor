@@ -14,7 +14,6 @@ HomeWizard:
 
 TODO
 ----
-* Display the consumed or supplied energy in red and green, respectively.
 * Polynomial interpolation
 
 2026-10-01 New
@@ -34,6 +33,8 @@ from matplotlib.backends.backend_tkagg import (
     FigureCanvasTkAgg,
     NavigationToolbar2Tk,
 )
+
+import numpy as np
 
 
 # ---------------------------------------------------------
@@ -74,8 +75,11 @@ class MonitorWindow(tk.Tk):
 
         # Data for graph
         self.units = 'W'
-        self.x_data = []
-        self.y_data = []
+        self.x_time = []
+        self.y_consumed = []
+        self.y_supplied = []
+        self.color_consumed = 'red'
+        self.color_supplied = 'green'
 
         self.start_time = None
 
@@ -134,7 +138,8 @@ class MonitorWindow(tk.Tk):
 
         self.fig = plt.Figure(figsize=(7, 5), dpi=100)
         self.ax = self.fig.add_subplot(1, 1, 1)
-        self.line, = self.ax.plot([], [], 'b-', linewidth=2)
+        self.line_y1, = self.ax.plot([], [], linewidth=2, color=self.color_consumed)
+        self.line_y2, = self.ax.plot([], [], linewidth=2, color=self.color_supplied)
         self.ax.set_xlabel('Time (seconds)', fontsize=11)
         self.ax.set_ylabel(f'Consumption ({self.units})', fontsize=11)
         self.ax.set_title('HomeWizard P1 Monitor')
@@ -193,9 +198,6 @@ class MonitorWindow(tk.Tk):
                 while self.running:
                     try:
                         measurement = await api.measurement()
-                        # energy_import_kwh is the total imported
-                        # energy counter from the P1 meter.
-                        #value = measurement.energy_import_kwh
                         # The current net energy (W)
                         # Positive value = consuming
                         value = measurement.power_w
@@ -262,14 +264,21 @@ class MonitorWindow(tk.Tk):
         if self.start_time is None:
             self.start_time = time.monotonic()
         elapsed = (time.monotonic() - self.start_time)
-        self.x_data.append(elapsed)
-        self.y_data.append(value)
+        self.x_time.append(elapsed)
+        if value < 0.0:
+            self.y_consumed.append(np.nan)
+            self.y_supplied.append(value)
+        else:
+            self.y_consumed.append(value)
+            self.y_supplied.append(np.nan)
         # Keep only the last MAX_POINTS
-        if len(self.x_data) > MAX_POINTS:
-            self.x_data = self.x_data[-MAX_POINTS:]
-            self.y_data = self.y_data[-MAX_POINTS:]
+        if len(self.x_time) > MAX_POINTS:
+            self.x_time = self.x_time[-MAX_POINTS:]
+            self.y_consumed = self.y_consumed[-MAX_POINTS:]
+            self.y_supplied = self.y_supplied[-MAX_POINTS:]
         # Update graph
-        self.line.set_data(self.x_data, self.y_data)
+        self.line_y1.set_data(self.x_time, self.y_consumed)
+        self.line_y2.set_data(self.x_time, self.y_supplied)
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw_idle()
@@ -280,11 +289,14 @@ class MonitorWindow(tk.Tk):
 
     def start_plot(self):
         """Clear the graph and start recording."""
-        self.x_data.clear()
-        self.y_data.clear()
+        self.x_time.clear()
+        self.y_consumed.clear()
+        self.y_supplied.clear()
+
         self.start_time = time.monotonic()
         self.plotting = True
-        self.line.set_data([], [])
+        self.line_y1.set_data([], [])
+        self.line_y2.set_data([], [])
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw_idle()
@@ -303,8 +315,8 @@ class MonitorWindow(tk.Tk):
         """Resume graph recording."""
         if not self.plotting:
             # Continue using the existing graph time
-            if self.x_data:
-                last_x = self.x_data[-1]
+            if self.x_time:
+                last_x = self.x_time[-1]
                 self.start_time = (time.monotonic() - last_x)
             else:
                 self.start_time = time.monotonic()
