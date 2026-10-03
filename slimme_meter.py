@@ -78,6 +78,7 @@ class MonitorWindow(tk.Tk):
         self.color_consumed = 'red'
         self.color_supplied = 'green'
         self.start_time = None
+        self.last_value = 0.0
 
         # -------------------------------------------------
         # Window close handler
@@ -452,7 +453,6 @@ class MonitorWindow(tk.Tk):
         """
         if value is None:
             return
-
         try:
             value = float(value)
         except (TypeError, ValueError):
@@ -471,11 +471,18 @@ class MonitorWindow(tk.Tk):
         self.x_time.append(elapsed)
 
         if value < 0.0:
-            self.y_consumed.append(np.nan)
+            if self.last_value > 0.0:
+                self.y_consumed.append(self.last_value)
+            else:
+                self.y_consumed.append(np.nan)
             self.y_supplied.append(value)
         else:
             self.y_consumed.append(value)
-            self.y_supplied.append(np.nan)
+            if self.last_value < 0.0:
+                self.y_supplied.append(self.last_value)
+            else:
+                self.y_supplied.append(np.nan)
+        self.last_value = value
 
         if len(self.x_time) > MAX_POINTS:
             self.x_time = self.x_time[-MAX_POINTS:]
