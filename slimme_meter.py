@@ -46,10 +46,10 @@ QUERY_FREQUENCY = 1  # Hz
 MEASUREMENT_INTERVAL = 1 / QUERY_FREQUENCY
 
 # Maximum number of measured points kept in the graph
-MAX_POINTS = 300
+MAX_POINTS = 500
 
 # Number of points used to draw the smooth interpolation
-INTERPOLATION_POINTS = 1000
+INTERPOLATION_POINTS = 1500
 
 
 class MonitorWindow(tk.Tk):
