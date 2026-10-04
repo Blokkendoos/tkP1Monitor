@@ -470,16 +470,23 @@ class MonitorWindow(tk.Tk):
         elapsed = time.monotonic() - self.start_time
         self.x_time.append(elapsed)
 
+        # Connect the y-graphs
         if value < 0.0:
             if self.last_value > 0.0:
+                self.x_time.append(elapsed)
                 self.y_consumed.append(self.last_value)
+                self.y_consumed.append(0.0)
+                self.y_supplied.append(0.0)
             else:
                 self.y_consumed.append(np.nan)
             self.y_supplied.append(value)
         else:
             self.y_consumed.append(value)
             if self.last_value < 0.0:
+                self.x_time.append(elapsed)
                 self.y_supplied.append(self.last_value)
+                self.y_supplied.append(0.0)
+                self.y_consumed.append(0.0)
             else:
                 self.y_supplied.append(np.nan)
         self.last_value = value
