@@ -65,6 +65,7 @@ class MonitorWindow(tk.Tk):
         # -------------------------------------------------
 
         self.running = True
+        self.first_run = True
         self.plotting = False
         self.measurement_queue = queue.Queue()
         self.api_thread = None
@@ -102,18 +103,6 @@ class MonitorWindow(tk.Tk):
             side='top',
             padx=10,
             pady=(5, 20),
-        )
-
-        self.start_button = ttk.Button(
-            left_frame,
-            text='Start',
-            command=self.start_plot,
-        )
-        self.start_button.pack(
-            side='top',
-            padx=10,
-            pady=5,
-            fill='x',
         )
 
         self.pause_button = ttk.Button(
@@ -460,6 +449,11 @@ class MonitorWindow(tk.Tk):
 
         self.energy_value.set(f'{value:.3f} {self.units}')
         self.status.set('Connected')
+
+        if self.first_run:
+            self.first_run = False
+            self.start_plot()
+            return
 
         if not self.plotting:
             return
