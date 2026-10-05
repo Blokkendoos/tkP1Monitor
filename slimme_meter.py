@@ -190,6 +190,36 @@ class MonitorWindow(tk.Tk):
         self.lc_measured = None
         self.lc_interp = None
 
+        # Manual Legend
+        self.legend_consumed, = self.ax.plot(
+            [],
+            [],
+            linewidth=self.smooth_width,
+            linestyle=self.smooth_style,
+            alpha=self.smooth_alpha,
+            color=self.color_consumed,
+            label='Consumed',
+        )
+
+        self.legend_supplied, = self.ax.plot(
+            [],
+            [],
+            linewidth=self.smooth_width,
+            linestyle=self.smooth_style,
+            alpha=self.smooth_alpha,
+            color=self.color_supplied,
+            label='Supplied',
+        )
+
+        # Lines
+        self.line_interp, = self.ax.plot(
+            [],
+            [],
+            linewidth=self.smooth_width,
+            linestyle=self.smooth_style,
+            alpha=self.smooth_alpha,
+            # label='Measured (cubic)',
+        )
         self.line_measured, = self.ax.plot(
             [],
             [],
