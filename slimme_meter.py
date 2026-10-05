@@ -30,6 +30,7 @@ from matplotlib.backends.backend_tkagg import (
     FigureCanvasTkAgg,
     NavigationToolbar2Tk,
 )
+from matplotlib.collections import LineCollection
 
 import numpy as np
 
@@ -74,12 +75,10 @@ class MonitorWindow(tk.Tk):
         # Data for graph
         self.units = 'W'
         self.x_time = []
-        self.y_consumed = []
-        self.y_supplied = []
+        self.y_measured = []
         self.color_consumed = 'red'
         self.color_supplied = 'green'
         self.start_time = None
-        self.last_value = 0.0
 
         # -------------------------------------------------
         # Window close handler
@@ -180,50 +179,33 @@ class MonitorWindow(tk.Tk):
         self.fig = plt.Figure(figsize=(7, 5), dpi=100)
         self.ax = self.fig.add_subplot(1, 1, 1)
 
-        data_width = 1
-        data_style = '--'
-        data_alpha = 0.65
+        self.data_width = 1
+        self.data_style = '--'
+        self.data_alpha = 0.65
 
-        smooth_width = 2
-        smooth_style = '-'
-        smooth_alpha = 1.0
+        self.smooth_width = 2
+        self.smooth_style = '-'
+        self.smooth_alpha = 1.0
 
-        self.line_y1, = self.ax.plot(
+        self.lc_measured = None
+        self.lc_interp = None
+
+        self.line_measured, = self.ax.plot(
             [],
             [],
-            linewidth=data_width,
-            linestyle=data_style,
-            color=self.color_consumed,
-            alpha=data_alpha,
-            label='Consumed (measured)',
-        )
-        self.line_y2, = self.ax.plot(
-            [],
-            [],
-            linewidth=data_width,
-            linestyle=data_style,
-            color=self.color_supplied,
-            alpha=data_alpha,
-            label='Supplied (measured)',
+            linewidth=self.data_width,
+            linestyle=self.data_style,
+            alpha=self.data_alpha,
+            # label='Measured',
         )
 
-        self.line_interp_consumed, = self.ax.plot(
+        self.line_interp, = self.ax.plot(
             [],
             [],
-            linewidth=smooth_width,
-            linestyle=smooth_style,
-            color=self.color_consumed,
-            alpha=smooth_alpha,
-            label='Consumed (cubic)',
-        )
-        self.line_interp_supplied, = self.ax.plot(
-            [],
-            [],
-            linewidth=smooth_width,
-            linestyle=smooth_style,
-            color=self.color_supplied,
-            alpha=smooth_alpha,
-            label='Supplied (cubic)',
+            linewidth=self.smooth_width,
+            linestyle=self.smooth_style,
+            alpha=self.smooth_alpha,
+            # label='Measured (cubic)',
         )
 
         self.ax.set_xlabel('Time (seconds)', fontsize=11)
@@ -349,86 +331,45 @@ class MonitorWindow(tk.Tk):
     # =====================================================
 
     def update_interpolation(self):
-        """
-        Calculate and display cubic spline interpolation.
+        """Calculate and display cubic spline interpolation."""
+        # CubicSpline requires at least four valid points
+        if len(self.x_time) < 4:
+            return
 
-        Consumption and supply are interpolated separately.
-
-        CubicSpline requires at least four valid points.
-        """
-        x_values = np.asarray(self.x_time, dtype=float)
-
-        # Consumption
-        consumed_values = np.asarray(
-            self.y_consumed,
-            dtype=float,
+        cs = CubicSpline(
+            self.x_time,
+            self.y_measured,
+            bc_type='natural'
         )
-        consumed_mask = np.isfinite(consumed_values)
-        x_consumed = x_values[consumed_mask]
-        y_consumed = consumed_values[consumed_mask]
-
-        if len(x_consumed) >= 4:
-            x_consumed, unique_indices = np.unique(
-                x_consumed,
-                return_index=True,
-            )
-            y_consumed = y_consumed[unique_indices]
-
-            if len(x_consumed) >= 4:
-                spline_consumed = CubicSpline(
-                    x_consumed,
-                    y_consumed,
-                )
-                x_smooth = np.linspace(
-                    x_consumed[0],
-                    x_consumed[-1],
-                    INTERPOLATION_POINTS,
-                )
-                y_smooth = spline_consumed(x_smooth)
-                self.line_interp_consumed.set_data(
-                    x_smooth,
-                    y_smooth,
-                )
-            else:
-                self.line_interp_consumed.set_data([], [])
-        else:
-            self.line_interp_consumed.set_data([], [])
-
-        # Supply
-        supplied_values = np.asarray(
-            self.y_supplied,
-            dtype=float,
+        x_smooth = np.linspace(
+            self.x_time[0],
+            self.x_time[-1],
+            INTERPOLATION_POINTS
         )
-        supplied_mask = np.isfinite(supplied_values)
-        x_supplied = x_values[supplied_mask]
-        y_supplied = supplied_values[supplied_mask]
+        y_smooth = cs(x_smooth)
 
-        if len(x_supplied) >= 4:
-            x_supplied, unique_indices = np.unique(
-                x_supplied,
-                return_index=True,
-            )
-            y_supplied = y_supplied[unique_indices]
+        # Define the condition for colors
+        colors = [
+            self.color_supplied
+            if val < 0 else self.color_consumed for val in y_smooth]
 
-            if len(x_supplied) >= 4:
-                spline_supplied = CubicSpline(
-                    x_supplied,
-                    y_supplied,
-                )
-                x_smooth = np.linspace(
-                    x_supplied[0],
-                    x_supplied[-1],
-                    INTERPOLATION_POINTS,
-                )
-                y_smooth = spline_supplied(x_smooth)
-                self.line_interp_supplied.set_data(
-                    x_smooth,
-                    y_smooth,
-                )
-            else:
-                self.line_interp_supplied.set_data([], [])
-        else:
-            self.line_interp_supplied.set_data([], [])
+        # Create a set of line segments so that we can color them individually
+        points = np.array([x_smooth, y_smooth]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+        self.line_interp.set_data(
+            x_smooth,
+            y_smooth
+        )
+
+        # Create the LineCollection object
+        if self.lc_interp is not None:
+            self.lc_interp.remove()
+        self.lc_interp = LineCollection(segments,
+                                        colors=colors,
+                                        linewidth=self.smooth_width,
+                                        linestyle=self.smooth_style)
+        self.ax.add_collection(self.lc_interp)
 
     # =====================================================
     # Measurement handling
@@ -458,52 +399,51 @@ class MonitorWindow(tk.Tk):
         if not self.plotting:
             return
 
-        if self.start_time is None:
-            self.start_time = time.monotonic()
-
-        elapsed = time.monotonic() - self.start_time
-        self.x_time.append(elapsed)
-
-        # Connect the y-graphs
-        if value < 0.0:
-            if self.last_value > 0.0:
-                self.x_time.append(elapsed)
-                self.y_consumed.append(self.last_value)
-                self.y_consumed.append(0.0)
-                self.y_supplied.append(0.0)
-            else:
-                self.y_consumed.append(np.nan)
-            self.y_supplied.append(value)
-        else:
-            self.y_consumed.append(value)
-            if self.last_value < 0.0:
-                self.x_time.append(elapsed)
-                self.y_supplied.append(self.last_value)
-                self.y_supplied.append(0.0)
-                self.y_consumed.append(0.0)
-            else:
-                self.y_supplied.append(np.nan)
-        self.last_value = value
-
-        if len(self.x_time) > MAX_POINTS:
-            self.x_time = self.x_time[-MAX_POINTS:]
-            self.y_consumed = self.y_consumed[-MAX_POINTS:]
-            self.y_supplied = self.y_supplied[-MAX_POINTS:]
-
-        self.line_y1.set_data(
-            self.x_time,
-            self.y_consumed,
-        )
-        self.line_y2.set_data(
-            self.x_time,
-            self.y_supplied,
-        )
-
+        self.update_measurement(value)
         self.update_interpolation()
 
         self.ax.relim()
         self.ax.autoscale_view()
         self.canvas.draw_idle()
+
+    def update_measurement(self, value):
+
+        if self.start_time is None:
+            self.start_time = time.monotonic()
+
+        elapsed = time.monotonic() - self.start_time
+        self.x_time.append(elapsed)
+        self.y_measured.append(value)
+
+        if len(self.x_time) > MAX_POINTS:
+            self.x_time = self.x_time[-MAX_POINTS:]
+            self.y_measured = self.y_measured[-MAX_POINTS:]
+
+        self.line_measured.set_data(
+            self.x_time,
+            self.y_measured
+        )
+
+        # https://blog.finxter.com/5-best-ways-to-plot-a-multicolored-line-based-on-a-condition-in-python-matplotlib/
+        # Define the condition for colors
+        colors = [
+            self.color_supplied
+            if val < 0 else self.color_consumed for val in self.y_measured]
+
+        # Create a set of line segments so that we can color them individually
+        points = np.array([self.x_time, self.y_measured]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+        # TODO cleanup/pop/remove collection before update
+
+        # Create the LineCollection object
+        if self.lc_measured is not None:
+            self.lc_measured.remove()
+        self.lc_measured = LineCollection(segments,
+                                          colors=colors,
+                                          linewidth=self.data_width,
+                                          linestyle=self.data_style)
+        self.ax.add_collection(self.lc_measured)
 
     # =====================================================
     # Button callbacks
@@ -512,15 +452,12 @@ class MonitorWindow(tk.Tk):
     def start_plot(self):
         """Clear the graph and start recording."""
         self.x_time.clear()
-        self.y_consumed.clear()
-        self.y_supplied.clear()
+        self.y_measured.clear()
         self.start_time = time.monotonic()
         self.plotting = True
 
-        self.line_y1.set_data([], [])
-        self.line_y2.set_data([], [])
-        self.line_interp_consumed.set_data([], [])
-        self.line_interp_supplied.set_data([], [])
+        self.line_measured.set_data([], [])
+        self.line_interp.set_data([], [])
 
         self.ax.relim()
         self.ax.autoscale_view()
