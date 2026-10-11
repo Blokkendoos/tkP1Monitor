@@ -1,6 +1,6 @@
 # Slimme Meter monitor
 
-Show the current consumed energy (W) values from a HomeWizard P1 Monitor.
+Show the current consumed energy values from a HomeWizard P1 Monitor.
 
 ## HomeWizard
 - local API activated
