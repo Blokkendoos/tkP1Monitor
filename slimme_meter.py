@@ -41,7 +41,7 @@ from scipy.interpolate import CubicSpline
 # ---------------------------------------------------------
 
 IP_ADDRESS = '192.168.178.221'
-GAS_METER = "gas_meter_G0090004415178525"
+GAS_METER = 'gas_meter_G0090004415178525'
 
 # HomeWizard query frequency
 QUERY_FREQUENCY = 1  # Hz
@@ -418,6 +418,47 @@ class MonitorWindow(tk.Tk):
                                         linestyle=self.smooth_style)
         self.ax.add_collection(self.lc_interp)
 
+    def update_gas_interpolation(self):
+        """Calculate and display cubic spline interpolation."""
+        # CubicSpline requires at least four valid points
+        if len(self.x_time) < 4:
+            return
+
+        cs = CubicSpline(
+            self.x2_time,
+            self.y2_measured,
+            bc_type='natural'
+        )
+        x_smooth = np.linspace(
+            self.x2_time[0],
+            self.x2_time[-1],
+            INTERPOLATION_POINTS
+        )
+        y_smooth = cs(x_smooth)
+
+        # Define the condition for colors
+        colors = [
+            self.color_supplied
+            if val < 0 else self.color_consumed for val in y_smooth]
+
+        # Create a set of line segments so that we can color them individually
+        points = np.array([x_smooth, y_smooth]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+        self.gas_interp.set_data(
+            x_smooth,
+            y_smooth
+        )
+
+        # Create the LineCollection object
+        if self.lc2_interp is not None:
+            self.lc2_interp.remove()
+        self.lc2_interp = LineCollection(segments,
+                                         colors=colors,
+                                         linewidth=self.smooth_width,
+                                         linestyle=self.smooth_style)
+        self.ax2.add_collection(self.lc2_interp)
+
     # =====================================================
     # Measurement handling
     # =====================================================
@@ -436,7 +477,7 @@ class MonitorWindow(tk.Tk):
             gas = float(data[1])
             gas_unit = data[2]
         except (TypeError, ValueError):
-            print("Invalid data received...")
+            print('Invalid data received...')
             return
 
         self.energy_value.set(f'{value:.3f} {self.units}')
@@ -450,84 +491,93 @@ class MonitorWindow(tk.Tk):
         if not self.plotting:
             return
 
-        self.update_measurement(self.ax,
-                                self.x_time,
-                                self.y_measured,
-                                self.line_measured,
-                                value,
-                                self.units,
-                                self.lc_measured)
+        self.update_electricity_measurement(value, self.units)
         self.update_electricity_interpolation()
 
-        self.update_measurement(self.ax2,
-                                self.x2_time,
-                                self.y2_measured,
-                                self.gas_measured,
-                                gas,
-                                gas_unit,
-                                self.lc2_measured)
-        # self.update_gas_interpolation()
+        self.update_gas_measurement(gas, gas_unit)
+        self.update_gas_interpolation()
+
         self.ax.relim()
         self.ax.autoscale_view()
         self.ax2.relim()
         self.ax2.autoscale_view()
         self.canvas.draw_idle()
 
-    def update_measurement(self,
-                           ax,
-                           x_time,
-                           y_measured,
-                           line_measured,
-                           value,
-                           unit,
-                           lc=None):
-        """
-        @brief Update the plot with latest value.
-
-        @param ax : The matplotlib axis
-        @param x_time : the x dimension value
-        @param y_measured : the y-dimension value
-        @param line_measured : the plotted line values
-        @param lc : the line collection
-        @param value : the current measurement
-        @param unit : unit
-        """
+    def update_electricity_measurement(self, value, unit):
         if self.start_time is None:
             self.start_time = time.monotonic()
 
         elapsed = time.monotonic() - self.start_time
-        x_time.append(elapsed)
-        y_measured.append(value)
+        self.x_time.append(elapsed)
+        self.y_measured.append(value)
 
-        if len(x_time) > MAX_POINTS:
-            x_time = x_time[-MAX_POINTS:]
-            y_measured = y_measured[-MAX_POINTS:]
+        if len(self.x_time) > MAX_POINTS:
+            self.x_time = self.x_time[-MAX_POINTS:]
+            self.y_measured = self.y_measured[-MAX_POINTS:]
 
-        line_measured.set_data(
-            x_time,
-            y_measured
+        self.line_measured.set_data(
+            self.x_time,
+            self.y_measured
         )
 
         # https://blog.finxter.com/5-best-ways-to-plot-a-multicolored-line-based-on-a-condition-in-python-matplotlib/
         # Define the condition for colors
         colors = [
             self.color_supplied
-            if val < 0 else self.color_consumed for val in y_measured]
+            if val < 0 else self.color_consumed for val in self.y_measured]
 
         # Create a set of line segments so that we can color them individually
-        points = np.array([self.x_time, y_measured]).T.reshape(-1, 1, 2)
+        points = np.array([self.x_time, self.y_measured]).T.reshape(-1, 1, 2)
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
         # TODO cleanup/pop/remove collection before update
 
         # Create the LineCollection object
-        if lc is not None:
-            lc.remove()
-        lc = LineCollection(segments,
-                            colors=colors,
-                            linewidth=self.data_width,
-                            linestyle=self.data_style)
-        ax.add_collection(lc)
+        if self.lc_measured is not None:
+            self.lc_measured.remove()
+        self.lc_measured = LineCollection(segments,
+                                          colors=colors,
+                                          linewidth=self.data_width,
+                                          linestyle=self.data_style)
+        self.ax.add_collection(self.lc_measured)
+
+    def update_gas_measurement(self, value, unit):
+        if self.start_time is None:
+            self.start_time = time.monotonic()
+
+        elapsed = time.monotonic() - self.start_time
+        self.x2_time.append(elapsed)
+        self.y2_measured.append(value)
+
+        if len(self.x2_time) > MAX_POINTS:
+            self.x2_time = self.x2_time[-MAX_POINTS:]
+            self.y2_measured = self.y2_measured[-MAX_POINTS:]
+
+        self.gas_measured.set_data(
+            self.x2_time,
+            self.y2_measured
+        )
+
+        # https://blog.finxter.com/5-best-ways-to-plot-a-multicolored-line-based-on-a-condition-in-python-matplotlib/
+        # Define the condition for colors
+        colors = [
+            self.color_supplied
+            if val < 0 else self.color_consumed for val in self.y2_measured]
+
+        # Create a set of line segments so that we can color them individually
+        points = np.array([self.x2_time, self.y2_measured]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+        # TODO cleanup/pop/remove collection before update
+
+        # Create the LineCollection object
+        if self.lc2_measured is not None:
+            self.lc2_measured.remove()
+        self.lc2_measured = LineCollection(segments,
+                                           colors=colors,
+                                           linewidth=self.data_width,
+                                           linestyle=self.data_style)
+        self.ax2.add_collection(self.lc2_measured)
 
     # =====================================================
     # Button callbacks
