@@ -41,6 +41,7 @@ from scipy.interpolate import CubicSpline
 # ---------------------------------------------------------
 
 IP_ADDRESS = '192.168.178.221'
+GAS_METER = "gas_meter_G0090004415178525"
 
 # HomeWizard query frequency
 QUERY_FREQUENCY = 1  # Hz
@@ -72,13 +73,17 @@ class MonitorWindow(tk.Tk):
         self.api_thread = None
         self.api_loop = None
 
-        # Data for graph
+        # Electricity
         self.units = 'W'
         self.x_time = []
         self.y_measured = []
         self.color_consumed = 'red'
         self.color_supplied = 'green'
         self.start_time = None
+
+        # Gas
+        self.x2_time = []
+        self.y2_measured = []
 
         # -------------------------------------------------
         # Window close handler
@@ -176,8 +181,9 @@ class MonitorWindow(tk.Tk):
         # Matplotlib figure
         # -------------------------------------------------
 
-        self.fig = plt.Figure(figsize=(7, 5), dpi=100)
-        self.ax = self.fig.add_subplot(1, 1, 1)
+        self.fig, axs = plt.subplots(2)
+        self.ax = axs[0]
+        self.ax2 = axs[1]
 
         self.data_width = 1
         self.data_style = '--'
@@ -187,8 +193,7 @@ class MonitorWindow(tk.Tk):
         self.smooth_style = '-'
         self.smooth_alpha = 1.0
 
-        self.lc_measured = None
-        self.lc_interp = None
+        # Electricity
 
         # Manual Legend
         self.legend_consumed, = self.ax.plot(
@@ -212,6 +217,8 @@ class MonitorWindow(tk.Tk):
         )
 
         # Lines
+        self.lc_measured = None
+        self.lc_interp = None
         self.line_interp, = self.ax.plot(
             [],
             [],
@@ -229,15 +236,6 @@ class MonitorWindow(tk.Tk):
             # label='Measured',
         )
 
-        self.line_interp, = self.ax.plot(
-            [],
-            [],
-            linewidth=self.smooth_width,
-            linestyle=self.smooth_style,
-            alpha=self.smooth_alpha,
-            # label='Measured (cubic)',
-        )
-
         self.ax.set_xlabel('Time (seconds)', fontsize=11)
         self.ax.set_ylabel(
             f'Consumption ({self.units})',
@@ -246,8 +244,29 @@ class MonitorWindow(tk.Tk):
         self.ax.set_title('HomeWizard P1 Monitor')
         self.ax.grid(True)
         self.ax.legend()
-        self.fig.tight_layout()
 
+        # Gas
+
+        # Lines
+        self.gas_measured, = self.ax2.plot(
+            [],
+            [],
+            linewidth=self.data_width,
+            linestyle=self.data_style,
+            alpha=self.data_alpha,
+            # label='Measured',
+        )
+
+        self.gas_interp, = self.ax2.plot(
+            [],
+            [],
+            linewidth=self.smooth_width,
+            linestyle=self.smooth_style,
+            alpha=self.smooth_alpha,
+            # label='Measured (cubic)',
+        )
+
+        self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
         self.canvas.get_tk_widget().pack(
             side='top',
