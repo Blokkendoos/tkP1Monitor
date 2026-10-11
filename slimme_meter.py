@@ -108,7 +108,6 @@ class MonitorWindow(tk.Tk):
             padx=10,
             pady=(5, 20),
         )
-
         self.pause_button = ttk.Button(
             left_frame,
             text='Pause',
@@ -120,7 +119,6 @@ class MonitorWindow(tk.Tk):
             pady=5,
             fill='x',
         )
-
         self.resume_button = ttk.Button(
             left_frame,
             text='Resume',
@@ -132,7 +130,6 @@ class MonitorWindow(tk.Tk):
             pady=5,
             fill='x',
         )
-
         separator = ttk.Separator(left_frame, orient='horizontal')
         separator.pack(fill='x', padx=5, pady=20)
 
@@ -142,7 +139,6 @@ class MonitorWindow(tk.Tk):
             padx=10,
             pady=(5, 2),
         )
-
         self.energy_value = tk.StringVar(value='-- W')
         energy_frame = ttk.Label(
             left_frame,
@@ -154,7 +150,6 @@ class MonitorWindow(tk.Tk):
             padx=10,
             pady=(0, 15),
         )
-
         status_label = ttk.Label(
             left_frame,
             text='Status:',
@@ -164,7 +159,6 @@ class MonitorWindow(tk.Tk):
             padx=10,
             pady=(5, 2),
         )
-
         self.status = tk.StringVar(value='Starting...')
         status_frame = ttk.Label(
             left_frame,
@@ -205,7 +199,6 @@ class MonitorWindow(tk.Tk):
             color=self.color_consumed,
             label='Consumed',
         )
-
         self.legend_supplied, = self.ax.plot(
             [],
             [],
@@ -235,7 +228,6 @@ class MonitorWindow(tk.Tk):
             alpha=self.data_alpha,
             # label='Measured',
         )
-
         self.ax.set_xlabel('Time (seconds)', fontsize=11)
         self.ax.set_ylabel(
             f'Consumption ({self.units})',
@@ -248,6 +240,8 @@ class MonitorWindow(tk.Tk):
         # Gas
 
         # Lines
+        self.lc2_measured = None
+        self.lc2_interp = None
         self.gas_measured, = self.ax2.plot(
             [],
             [],
@@ -256,7 +250,6 @@ class MonitorWindow(tk.Tk):
             alpha=self.data_alpha,
             # label='Measured',
         )
-
         self.gas_interp, = self.ax2.plot(
             [],
             [],
@@ -265,6 +258,8 @@ class MonitorWindow(tk.Tk):
             alpha=self.smooth_alpha,
             # label='Measured (cubic)',
         )
+        self.ax2.grid(True)
+        self.ax2.legend()
 
         self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=self)
@@ -273,7 +268,6 @@ class MonitorWindow(tk.Tk):
             fill='both',
             expand=True,
         )
-
         self.toolbar = NavigationToolbar2Tk(self.canvas, self)
         self.toolbar.update()
 
@@ -330,12 +324,16 @@ class MonitorWindow(tk.Tk):
 
                 while self.running:
                     try:
-                        measurement = await api.measurement()
+                        data = await api.measurement()
                         # Current net energy (W).
                         # Positive value = consuming.
-                        value = measurement.power_w
+                        electricity = data.power_w
+                        # Gas consumption
+                        gas = data.external_devices[GAS_METER].value
+                        gas_unit = data.external_devices[GAS_METER].unit
+                        # TODO data object instead of a list
                         self.measurement_queue.put(
-                            ('measurement', value),
+                            ('measurement', [electricity, gas, gas_unit]),
                         )
                     except Exception as error:
                         self.measurement_queue.put(
@@ -360,15 +358,15 @@ class MonitorWindow(tk.Tk):
         """
         try:
             while True:
-                message_type, value = (
+                message_type, data = (
                     self.measurement_queue.get_nowait()
                 )
                 if message_type == 'measurement':
-                    self.handle_measurement(value)
+                    self.handle_measurement(data)
                 elif message_type == 'status':
-                    self.status.set(value)
+                    self.status.set(data)
                 elif message_type == 'error':
-                    self.status.set(f'API error: {value}')
+                    self.status.set(f'API error: {data}')
         except queue.Empty:
             pass
 
@@ -379,7 +377,7 @@ class MonitorWindow(tk.Tk):
     # Cubic interpolation
     # =====================================================
 
-    def update_interpolation(self):
+    def update_electricity_interpolation(self):
         """Calculate and display cubic spline interpolation."""
         # CubicSpline requires at least four valid points
         if len(self.x_time) < 4:
@@ -424,17 +422,21 @@ class MonitorWindow(tk.Tk):
     # Measurement handling
     # =====================================================
 
-    def handle_measurement(self, value):
+    def handle_measurement(self, data):
         """
         Handle one HomeWizard measurement.
 
         This function runs in the Tkinter thread.
         """
-        if value is None:
+        if data is None:
             return
         try:
-            value = float(value)
+            # TODO data object instead of list
+            value = float(data[0])
+            gas = float(data[1])
+            gas_unit = data[2]
         except (TypeError, ValueError):
+            print("Invalid data received...")
             return
 
         self.energy_value.set(f'{value:.3f} {self.units}')
@@ -448,51 +450,84 @@ class MonitorWindow(tk.Tk):
         if not self.plotting:
             return
 
-        self.update_measurement(value)
-        self.update_interpolation()
+        self.update_measurement(self.ax,
+                                self.x_time,
+                                self.y_measured,
+                                self.line_measured,
+                                value,
+                                self.units,
+                                self.lc_measured)
+        self.update_electricity_interpolation()
 
+        self.update_measurement(self.ax2,
+                                self.x2_time,
+                                self.y2_measured,
+                                self.gas_measured,
+                                gas,
+                                gas_unit,
+                                self.lc2_measured)
+        # self.update_gas_interpolation()
         self.ax.relim()
         self.ax.autoscale_view()
+        self.ax2.relim()
+        self.ax2.autoscale_view()
         self.canvas.draw_idle()
 
-    def update_measurement(self, value):
+    def update_measurement(self,
+                           ax,
+                           x_time,
+                           y_measured,
+                           line_measured,
+                           value,
+                           unit,
+                           lc=None):
+        """
+        @brief Update the plot with latest value.
 
+        @param ax : The matplotlib axis
+        @param x_time : the x dimension value
+        @param y_measured : the y-dimension value
+        @param line_measured : the plotted line values
+        @param lc : the line collection
+        @param value : the current measurement
+        @param unit : unit
+        """
         if self.start_time is None:
             self.start_time = time.monotonic()
 
         elapsed = time.monotonic() - self.start_time
-        self.x_time.append(elapsed)
-        self.y_measured.append(value)
+        x_time.append(elapsed)
+        y_measured.append(value)
 
-        if len(self.x_time) > MAX_POINTS:
-            self.x_time = self.x_time[-MAX_POINTS:]
-            self.y_measured = self.y_measured[-MAX_POINTS:]
+        if len(x_time) > MAX_POINTS:
+            x_time = x_time[-MAX_POINTS:]
+            y_measured = y_measured[-MAX_POINTS:]
 
-        self.line_measured.set_data(
-            self.x_time,
-            self.y_measured
+        line_measured.set_data(
+            x_time,
+            y_measured
         )
 
         # https://blog.finxter.com/5-best-ways-to-plot-a-multicolored-line-based-on-a-condition-in-python-matplotlib/
         # Define the condition for colors
         colors = [
             self.color_supplied
-            if val < 0 else self.color_consumed for val in self.y_measured]
+            if val < 0 else self.color_consumed for val in y_measured]
 
         # Create a set of line segments so that we can color them individually
-        points = np.array([self.x_time, self.y_measured]).T.reshape(-1, 1, 2)
+        points = np.array([self.x_time, y_measured]).T.reshape(-1, 1, 2)
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
         # TODO cleanup/pop/remove collection before update
 
         # Create the LineCollection object
-        if self.lc_measured is not None:
-            self.lc_measured.remove()
-        self.lc_measured = LineCollection(segments,
-                                          colors=colors,
-                                          linewidth=self.data_width,
-                                          linestyle=self.data_style)
-        self.ax.add_collection(self.lc_measured)
+        if lc is not None:
+            lc.remove()
+        lc = LineCollection(segments,
+                            colors=colors,
+                            linewidth=self.data_width,
+                            linestyle=self.data_style)
+        ax.add_collection(lc)
 
     # =====================================================
     # Button callbacks
@@ -502,6 +537,7 @@ class MonitorWindow(tk.Tk):
         """Clear the graph and start recording."""
         self.x_time.clear()
         self.y_measured.clear()
+        self.y2_measured.clear()
         self.start_time = time.monotonic()
         self.plotting = True
 
