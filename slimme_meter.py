@@ -72,18 +72,20 @@ class MonitorWindow(tk.Tk):
         self.measurement_queue = queue.Queue()
         self.api_thread = None
         self.api_loop = None
+        self.start_time = None
 
-        # Electricity
-        self.units = 'W'
-        self.x_time = []
-        self.y_measured = []
         self.color_consumed = 'red'
         self.color_supplied = 'green'
-        self.start_time = None
+
+        # Electricity
+        self.x_time = []
+        self.y_measured = []
+        self.units = 'W'
 
         # Gas
         self.x2_time = []
         self.y2_measured = []
+        self.gas_last_value = None
 
         # -------------------------------------------------
         # Window close handler
@@ -240,14 +242,13 @@ class MonitorWindow(tk.Tk):
         # Gas
 
         # Lines
-        self.lc2_measured = None
-        self.lc2_interp = None
         self.gas_measured, = self.ax2.plot(
             [],
             [],
             linewidth=self.data_width,
             linestyle=self.data_style,
             alpha=self.data_alpha,
+            color=self.color_consumed,
             # label='Measured',
         )
         self.gas_interp, = self.ax2.plot(
@@ -256,6 +257,7 @@ class MonitorWindow(tk.Tk):
             linewidth=self.smooth_width,
             linestyle=self.smooth_style,
             alpha=self.smooth_alpha,
+            color=self.color_consumed,
             # label='Measured (cubic)',
         )
         self.ax2.grid(True)
@@ -436,28 +438,10 @@ class MonitorWindow(tk.Tk):
         )
         y_smooth = cs(x_smooth)
 
-        # Define the condition for colors
-        colors = [
-            self.color_supplied
-            if val < 0 else self.color_consumed for val in y_smooth]
-
-        # Create a set of line segments so that we can color them individually
-        points = np.array([x_smooth, y_smooth]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-
         self.gas_interp.set_data(
             x_smooth,
             y_smooth
         )
-
-        # Create the LineCollection object
-        if self.lc2_interp is not None:
-            self.lc2_interp.remove()
-        self.lc2_interp = LineCollection(segments,
-                                         colors=colors,
-                                         linewidth=self.smooth_width,
-                                         linestyle=self.smooth_style)
-        self.ax2.add_collection(self.lc2_interp)
 
     # =====================================================
     # Measurement handling
@@ -494,8 +478,14 @@ class MonitorWindow(tk.Tk):
         self.update_electricity_measurement(value, self.units)
         self.update_electricity_interpolation()
 
-        self.update_gas_measurement(gas, gas_unit)
-        self.update_gas_interpolation()
+        # Calculate consumed volume
+        if self.gas_last_value is None:
+            self.gas_last_value = gas
+        else:
+            value = gas - self.gas_last_value
+            self.gas_last_value = gas
+            self.update_gas_measurement(value, gas_unit)
+            self.update_gas_interpolation()
 
         self.ax.relim()
         self.ax.autoscale_view()
@@ -530,8 +520,6 @@ class MonitorWindow(tk.Tk):
         points = np.array([self.x_time, self.y_measured]).T.reshape(-1, 1, 2)
         segments = np.concatenate([points[:-1], points[1:]], axis=1)
 
-        # TODO cleanup/pop/remove collection before update
-
         # Create the LineCollection object
         if self.lc_measured is not None:
             self.lc_measured.remove()
@@ -557,27 +545,6 @@ class MonitorWindow(tk.Tk):
             self.x2_time,
             self.y2_measured
         )
-
-        # https://blog.finxter.com/5-best-ways-to-plot-a-multicolored-line-based-on-a-condition-in-python-matplotlib/
-        # Define the condition for colors
-        colors = [
-            self.color_supplied
-            if val < 0 else self.color_consumed for val in self.y2_measured]
-
-        # Create a set of line segments so that we can color them individually
-        points = np.array([self.x2_time, self.y2_measured]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-
-        # TODO cleanup/pop/remove collection before update
-
-        # Create the LineCollection object
-        if self.lc2_measured is not None:
-            self.lc2_measured.remove()
-        self.lc2_measured = LineCollection(segments,
-                                           colors=colors,
-                                           linewidth=self.data_width,
-                                           linestyle=self.data_style)
-        self.ax2.add_collection(self.lc2_measured)
 
     # =====================================================
     # Button callbacks
